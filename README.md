@@ -1,6 +1,6 @@
 # gryder
 
-Bioinformatics analysis scripts used for analyzing RNA-seq and ChIP-seq data. 
+Bioinformatics analysis scripts used for analyzing RNA-seq, ChIP-seq, and proteomics data. 
 
 ## RNA-seq
 `buildTPM.R` builds expression (TPM) matrix, Log2FC matrix, and GSEA ranklists.
@@ -10,3 +10,6 @@ Bioinformatics analysis scripts used for analyzing RNA-seq and ChIP-seq data.
 `gatherGSEA.R` builds custom GSEA ES/rank/density plots.
 
 ## ChIP-seq
+
+## Proteomics
+'proteomics.R' builds volcano plots and bar plots.
