@@ -12,4 +12,4 @@ Bioinformatics analysis scripts used for analyzing RNA-seq, ChIP-seq, and proteo
 ## ChIP-seq
 
 ## Proteomics
-'proteomics.R' builds volcano plots and bar plots.
+`proteomics.R` builds volcano plots and bar plots.
