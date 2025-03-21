@@ -190,3 +190,112 @@ ma_plot = ggplot(data_100nM_ma, aes(x = A, y = M, color = Significance_MA)) +
     point.padding = 0.3,
     segment.color = "black",
     segment.size = 0.5,
+    arrow = arrow(length = unit(0.01, "npc"), type = "closed"),
+    max.overlaps = Inf
+  )
+
+print(ma_plot)
+
+
+
+
+
+
+# =========================== Scatter Plot ===========================
+
+# Define proteins to highlight
+proteins_to_label = c("MYOD1_HUMAN", "MYOG_HUMAN", "SOX8_HUMAN", "PAX3_HUMAN", "FOXO1_HUMAN", "JUN_HUMAN")
+
+# compute log10 intensities
+data_100nM_cor = data_100nM %>%
+  mutate(
+    log10_DMSO = log10(DMSO_mean + 1),
+    log10_IHK44 = log10(IHK44_100nM_mean + 1)
+  )
+
+# fit linear regression model (full dataset)
+lm_fit = lm(log10_IHK44 ~ log10_DMSO, data = data_100nM_cor)
+
+# compute residuals
+data_100nM_cor = data_100nM_cor %>%
+  mutate(
+    predicted_IHK44 = predict(lm_fit, newdata = data_100nM_cor),
+    residual = log10_IHK44 - predicted_IHK44
+  )
+
+# define threshold for extreme outliers (10 × SD) and calculate Pearson correlation coefficient (R²)
+residual_sd = sd(data_100nM_cor$residual, na.rm = TRUE)
+outlier_threshold = 10 * residual_sd
+data_filtered_for_R2 = data_100nM_cor %>%
+  filter(abs(residual) <= outlier_threshold)
+correlation_filtered = cor(data_filtered_for_R2$log10_DMSO, data_filtered_for_R2$log10_IHK44)
+R2_filtered = correlation_filtered^2
+
+# define threshold for down-expressed proteins (below trendline)
+down_threshold = -2 * residual_sd
+
+# assign significance
+data_100nM_cor = data_100nM_cor %>%
+  mutate(
+    Significance_scatter = case_when(
+      residual > abs(down_threshold) ~ "Up-Expressed",
+      residual < down_threshold ~ "Down-Expressed", 
+      TRUE ~ "Not Significant"
+    ),
+    Proteins_of_Interest = ifelse(Protein.Names %in% proteins_to_label, "Yes", "No")
+  )
+
+# label
+data_100nM_scatter_labels = data_100nM_cor %>%
+  filter(Significance_scatter == "Up-Expressed")
+  # filter(Significance_scatter == "Down-Expressed")
+  # filter(Proteins_of_Interest == "Yes")
+
+# plot
+scatter_plot = ggplot(data_100nM_cor, aes(x = log10_DMSO, y = log10_IHK44, color = Significance_scatter)) +
+  geom_point(size = 1.3, alpha = 0.8) +
+  scale_color_manual(values = c("Up-Expressed" = "blue", "Not Significant" = "darkgreen")) +
+  # scale_color_manual(values = c("Down-Expressed" = "red", "Not Significant" = "darkgreen")) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  theme_minimal() +
+  xlim(1, max(data_100nM_cor$log10_DMSO)) +
+  ylim(1, max(data_100nM_cor$log10_IHK44)) +
+  labs(
+    title = "Log10 Transformed Protein Abundance",
+    x = "DMSO",
+    y = "IHK-44 100nM"
+  ) +
+  theme(legend.title = element_blank()) +
+  
+  geom_label_repel(
+    data = data_100nM_scatter_labels,
+    aes(label = Protein.Names),
+    size = 3,
+    color = "black",
+    box.padding = 0.4,
+    point.padding = 0.3,
+    segment.color = "black",
+    segment.size = 0.5,
+    arrow = arrow(length = unit(0.01, "npc"), type = "closed"),
+    max.overlaps = Inf
+  ) +
+  
+  annotate("text", x = 1.5,  
+           y = max(data_100nM_cor$log10_IHK44) - 0.5, 
+           label = paste0("R² (10*SD) = ", round(R2_filtered, 4)), 
+           size = 5, hjust = 0)
+
+print(scatter_plot)
+
+
+
+
+# identify extreme outliers (proteins with residuals > 10 SD)
+extreme_outliers = data_100nM_cor %>%
+  filter(abs(residual) > outlier_threshold) %>%
+  select(Protein.Names, log10_DMSO, log10_IHK44, predicted_IHK44, residual)
+cat("Extreme Outliers (Residual > 10 * SD):\n")
+print(extreme_outliers)
+
+
+
