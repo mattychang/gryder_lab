@@ -1,8 +1,7 @@
 ##########################
-# Updated: 12.11.24 (Matt)
+# Updated: 05.03.2025 (Matt)
 ##########################
 
-# import libraries
 library(plyr)
 library(ggplot2)
 library(pheatmap)
@@ -12,27 +11,26 @@ library(gridExtra)
 
 setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GSEA_results")
 GSEA.folder = "GSEA_results_against_DMSO"
-
 project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GSEA_results"
 
 # parse sample information
-samples = list.dirs(path = GSEA.folder, full.names = F, recursive = F)                                          # note: do NOT use "." in GSEA Analysis names, will cause incorrect parsing
-sample.df = read.table(text = samples, sep=".")                                                                 # read samples into the df parsing through "."
-sample.df$V3 = as.character(sample.df$V3)                                                                       # convert third column to char
-colnames(sample.df) = c("Drug","GSEA_Style","Digits")                                                           # change column names
+# note: do NOT use "." in when exporting GSEA results --> will cause incorrect parsing
+samples = list.dirs(path = GSEA.folder, full.names = F, recursive = F)
+sample.df = read.table(text = samples, sep=".")
+sample.df$V3 = as.character(sample.df$V3)
+colnames(sample.df) = c("Drug","GSEA_Style","Digits")
 sample.df$neg.xls.path = paste(GSEA.folder, "/", paste(sample.df$Drug, sample.df$GSEA_Style, sample.df$Digits, sep="."), "/gsea_report_for_na_neg_", sample.df$Digits,".tsv", sep="")
 sample.df$pos.xls.path = paste(GSEA.folder, "/", paste(sample.df$Drug, sample.df$GSEA_Style, sample.df$Digits, sep="."), "/gsea_report_for_na_pos_", sample.df$Digits, ".tsv", sep="")
 
-# import and combine GSEA data
+# import GSEA results
 column.names = c("NAME", "ES", "NES", "NOM.p.val", "FDR.q.val", "FWER.p.val", "Drug")
 allsamples = data.frame(matrix(ncol = length(column.names), nrow = 0))
 colnames(allsamples) = column.names
 
-lapply(sample.df$Drug, function(x) {    # note: 24*18=432
+lapply(sample.df$Drug, function(x) {
   
     temp.df = subset(sample.df,sample.df$Drug %in% x)
     
-    # load in upregulated and downregulated paths
     if(file.exists(temp.df$neg.xls.path) == 'TRUE') {
       df.neg = read.table(temp.df$neg.xls.path,sep="\t",header=T)
     }
@@ -53,7 +51,7 @@ lapply(sample.df$Drug, function(x) {    # note: 24*18=432
     allsamples <<- rbind(allsamples, df)
 })
 
-# clean up invalid values
+# clean up and transform
 row.names(allsamples) <- 1:nrow(allsamples)
 
 allsamples$NES = as.numeric(allsamples$NES)
@@ -63,7 +61,7 @@ allsamples <- na.omit(allsamples)
 allsamples$NOM.p.val = as.numeric(allsamples$NOM.p.val) + 0.00001
 allsamples$log10.NOM.p.val= log10(allsamples$NOM.p.val)
     
-# reorder based on mean NES (rankmetric)
+# order genesets by mean NES
 NAME.ranks = aggregate(NES ~ NAME, allsamples, mean)
 colnames(NAME.ranks) = c("NAME", "rankmetric")
 allsamples = join(allsamples, NAME.ranks, by = "NAME")
@@ -95,13 +93,11 @@ write.table(allsamples,
 
 
 
-##########################
-# Bubble charts and heatmaps
-##########################
+########################## bubble charts and heatmaps ##########################
 
-included_samples = c("A485_100nM_6h",
-                     "IHK44_100nM_6h",
-                     "dCBP_100nM_6h")
+included_samples = c("A485_100nM_6h")#,
+                     # "IHK44_100nM_6h",
+                     #"dCBP_100nM_6h")
 
 GENE.plot.subset = subset(allsamples, allsamples$Drug %in% included_samples) 
 
@@ -137,9 +133,7 @@ pheatmap(heatmap.matrix,
 
 
 
-##########################
-# Overlapping ES and density plots
-##########################
+########################## enrichment score and density plots ##########################
 
 # declare geneset of interest
 setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GSEA_results")
@@ -166,10 +160,11 @@ lapply(sample.df$Drug, function(x) {
 })
         
 # filter
+included_samples = c("IHK44_100nM_6h")#,
+                     #"A485_100nM_6h",
+                     #"dCBP_100nM_6h")
 
-included_samples = c("IHK44_100nM_6h","A485_100nM_6h","dCBP_100nM_6h")
-
-Drugcolors <- c(
+drugcolors <- c(
   "A485_100nM_2h" = "blue", 
   "A485_100nM_6h" = "blue", 
   "A485_1uM_2h" = "blue", 
@@ -207,14 +202,14 @@ Geneset.allsamples.pick = subset(Geneset.allsamples, Geneset.allsamples$SYMBOL %
 p1 = ggplot(Geneset.allsamples, aes(x = RANK.IN.GENE.LIST, y = RUNNING.ES, group = Drug, color = Drug)) + 
   geom_line(size = 1.2) + 
   geom_hline(yintercept = 0, lty = 'dashed') +
-  scale_color_manual(values = Drugcolors) +
+  scale_color_manual(values = drugcolors) +
   theme_bw() + 
   theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), legend.position = c(0.25, 0.25)) +
   ylab("Enrichment Score") + 
   xlab(paste("Genes Ranked by log2 fold change")) +
-  ggtitle(paste("Geneset:", Geneset, sep=" ")) # +
-  # geom_point(data = Geneset.allsamples.pick, color = "black") +
-  # geom_text(data = Geneset.allsamples.pick, label = Geneset.allsamples.pick$SYMBOL)
+  ggtitle(paste("Geneset:", Geneset, sep=" ")) #+
+  #geom_point(data = Geneset.allsamples.pick, color = "black") +
+  #geom_text(data = Geneset.allsamples.pick, label = Geneset.allsamples.pick$SYMBOL)
 
 # Plot 2: Density plot
 p2 = ggplot(Geneset.allsamples,group = Drug) + 
@@ -235,7 +230,7 @@ p2 = ggplot(Geneset.allsamples,group = Drug) +
 p3 = p2 + geom_linerange(aes(x = RANK.IN.GENE.LIST, ymin = 0, ymax = 1, color = Drug)) +
   facet_wrap(~Drug, ncol=1) +
   theme_bw() + 
-  scale_color_manual(values = Drugcolors) +
+  scale_color_manual(values = drugcolors) +
   theme(axis.line = element_blank(),
         axis.title.x = element_blank(), 
         legend.position = "none",
