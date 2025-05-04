@@ -1,48 +1,51 @@
 ##########################
-# Updated: 02.24.24 (Matt)
-##########################
-# This script makes the TPM matrix, Log2FC matrix, and GSEA ranklists
+# Updated: 05.03.2025 (Matt)
 ##########################
 
 getwd()
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/SampleList")                       # define the sample list path
-sample.list.all = read.table(file.choose(), header = T, sep = "\t")                                             # acquire the sample list (.txt file, "Sample" as first entry)
+project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC"
+sample.set = "IHK_samples"
+
+
+
+
+########################## create TPM matrix (coding proteins, normalized TPM) ##########################
+
+# import sample list (TXT)
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/SampleList")
+sample.list.all = read.table(file.choose(), header = T, sep = "\t")
 sample.list = sample.list.all$Sample
 
-project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC"                        # define the project folder path
-sample.set = "IHK_samples"                                                                                      # save sample name
+# import TPM files for samples
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/")
+file.exists = file.exists(paste0("DATA/", sample.list,"/", sample.list, ".gene.TPM.txt", sep=""))
+sample.list = sample.list[file.exists]
 
-##########################
-# create TPM matrix
-##########################
-
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/")                                                               # define the data path to retrieve samples
-file.exists = file.exists(paste0("DATA/", sample.list,"/", sample.list, ".gene.TPM.txt", sep=""))               # check to see if TPM.txt exists for each sample (TRUE for all existing files)
-sample.list = sample.list[file.exists]                                                                          # remove samples whose data file does not exist
-
-lapply(sample.list, function(x) {                                                                               # make coding TPM file, normalize based on expected counts
-    coding <- read.table("ref/RSEM_hg38/HGNC_protein-coding_gene_19229_2022.txt", sep="\t", header=T)           # load in more stringent protein coding list (from Diana)
-    EXP <- read.table(paste("DATA/",x,"/",x,".genes.results",sep=""), sep="\t", header=T)                       # load RSEM (genes.results) output file for the current sample with expected count, TPM, FPKM
-    EXP$coding = EXP$gene_id %in% coding$symbol                                                                 # remove non-coding RNA entries
+# processing step that filters for coding proteins and calculates normalized TPM
+lapply(sample.list, function(x) {
+    coding <- read.table("ref/RSEM_hg38/HGNC_protein-coding_gene_19229_2022.txt", sep="\t", header=T)
+    EXP <- read.table(paste("DATA/",x,"/",x,".genes.results",sep=""), sep="\t", header=T)
+    EXP$coding = EXP$gene_id %in% coding$symbol
     EXP.coding <<- subset(EXP, EXP$coding %in% c("TRUE"))
-    expected_sum = sum(EXP.coding$expected_count)                                                               # sum all coding expected counts
-    EXP.coding$count_norm = EXP.coding$expected_count / expected_sum * 1000000                                  # normalize expected counts to counts per million
+    expected_sum = sum(EXP.coding$expected_count)
+    EXP.coding$count_norm = EXP.coding$expected_count / expected_sum * 1000000
     write.table(EXP.coding[,1:9],
                 file=paste("DATA/",x,"/",x,".gene.coding.norm.txt",sep=""), 
                 sep="\t", 
                 row.names=FALSE, 
                 col.names=TRUE, 
                 quote=FALSE)
-})                                                                                                              # note: outputs should all be NULL
+})
 
-EXP.coding.matrix = EXP.coding["gene_id"]                                                                       # create coding matrix
+# build TPM matrix (rows = genes, columns = samples)
+EXP.coding.matrix = EXP.coding["gene_id"]
 lapply(sample.list, function(x) {                                                                               
-    EXP.sample = read.table(paste("DATA/",x,"/",x,".gene.coding.norm.txt",sep=""), sep="\t", header=T)          # read the normalized counts
-    EXP.sample = as.data.frame(EXP.sample[,9])                                                                  # extract the normalized counts
+    EXP.sample = read.table(paste("DATA/",x,"/",x,".gene.coding.norm.txt",sep=""), sep="\t", header=T)
+    EXP.sample = as.data.frame(EXP.sample[,9])
     removable.string = "Sample_"
     sample.name = gsub(removable.string,"",x)
     colnames(EXP.sample) = c(sample.name)
-    EXP.coding.matrix <<- cbind(EXP.coding.matrix, EXP.sample)                                                  # combine the current sample data into the matrix
+    EXP.coding.matrix <<- cbind(EXP.coding.matrix, EXP.sample)
 })
 
 # clean up
@@ -64,13 +67,11 @@ write.table(EXP.coding.matrix,
 
 
 
-##########################
-# create Log2FC matrix
-##########################
+########################## create Log2FC matrix ##########################
 
 EXP.log2FC = EXP.coding.matrix
 
-# Log2FC calculation step
+# Log2FC calculation
 EXP.log2FC$RH4_A485_100nM_2h_FC = log2(EXP.log2FC$RH4_A485_100nM_2h + 1) - log2(EXP.log2FC$RH4_DMSO_2h + 1)
 EXP.log2FC$RH4_A485_1uM_2h_FC = log2(EXP.log2FC$RH4_A485_1uM_2h + 1) - log2(EXP.log2FC$RH4_DMSO_2h + 1)
 EXP.log2FC$RH4_A485_100nM_6h_FC = log2(EXP.log2FC$RH4_A485_100nM_6h + 1) - log2(EXP.log2FC$RH4_DMSO_6h + 1)
@@ -109,15 +110,13 @@ write.table(EXP.log2FC,
             quote = FALSE)
 
 
-##########################
-# create GSEA ranklists
-##########################
+########################## create GSEA ranklists ##########################
 
 EXP.GSEA = EXP.log2FC
 
 dir.create(file.path(project.folder, "GSEA_ranklist", "vs_DMSO"), recursive = T)
 
-# write out rank (.rnk) files for GSEA
+# write out RNK files to run GSEA
 for (i in 2:ncol(EXP.GSEA)) {
   Ranklist = data.frame(EXP.GSEA[, 1])                                                                            # create Ranklist df, 1st column is gene_id
   Ranklist$DeltaTPM = EXP.GSEA[, i]                                                                               # 2nd column is DeltaTPM
