@@ -1,10 +1,7 @@
 ##########################
-# Updated: 02.24.24 (Matt)
-##########################
-# This script makes PCA plots, heatmaps, bar plots, box/violin plots, and rank plots
+# Updated: 05.03.2025 (Matt)
 ##########################
 
-# import libraries
 library(plyr)
 library(dplyr)
 library(pheatmap)
@@ -15,28 +12,22 @@ library(ggplot2)
 library(reshape2)
 library(gridExtra)
 
-# load in Log2(TPM + 1) and Log2FC master matrices
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices/")                         # define the TPM matrix path
-EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header = T)                                    # read in TPM matrix
-EXP.coding.matrix = EXP.coding.matrix[, 1:(ncol(EXP.coding.matrix) - 4)]                                            # drop IHK-45
-EXP.log2FC = read.table("IHK_samples.log2FC.txt", header = T)                                                       # read in log2FC matrix
+# import TPM and Log2FC matrices
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices/")
+EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header = T)
+EXP.coding.matrix = EXP.coding.matrix[, 1:(ncol(EXP.coding.matrix) - 4)] # remove IHK-45
+EXP.log2FC = read.table("IHK_samples.log2FC.txt", header = T)
 
-# load in sample condition info
+# import metadata
 setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/SampleList/")
 sample.class = read.table("sample-list-IHK-info.txt", header = F, stringsAsFactors = F)
 colnames(sample.class) = c("sample.name.list", "drugs", "timepoints", "concentrations", "annotations")
 
-# load in geneset list
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GeneSets/")                            # define the geneset list path
-gene.list = read.table("MSC_GRYDER_RH4_CR_TFs_CRISPRTop.genelist.txt", sep = "\t", header = F)                                                   # read in geneset list                                                                                       # save sample name
+# import geneset
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GeneSets/")
+gene.list = read.table("MSC_GRYDER_RH4_CR_TFs_CRISPRTop.genelist.txt", sep = "\t", header = F)
 
-drug_colors = c(
-  "DMSO" = "gray40", "NT" = "gray40", 
-  "A485" = "blue", "dCBP" = "darkgreen", "IHK44" = "red", 
-  "JQAD" = "darkgoldenrod1", "LS" = "purple", "QL" = "darkorange3"
-)
-
-project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC"                            # define the project folder path
+project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC"
 sample.set = "IHK_samples"   
 
 
@@ -46,9 +37,14 @@ sample.set = "IHK_samples"
 
 
 
-
-
 ########################## PCA ##########################
+
+# color scheme
+drug_colors = c(
+  "DMSO" = "gray40", "NT" = "gray40", 
+  "A485" = "blue", "dCBP" = "darkgreen", "IHK44" = "red", 
+  "JQAD" = "darkgoldenrod1", "LS" = "purple", "QL" = "darkorange3"
+)
 
 # subset based on time-point (2h, 6h) and dosage (100nM, 1uM)
 EXP.2h.and.6h = EXP.coding.matrix
@@ -123,25 +119,6 @@ plot.pca.100nM = run_pca_and_plot(EXP.100nM, sample.class.100nM, "100nM")
 print(plot.pca.100nM)
 plot.pca.1uM = run_pca_and_plot(EXP.1uM, sample.class.1uM, "1uM")
 print(plot.pca.1uM)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -601,9 +578,13 @@ fc_col = "RH4_IHK44_100nM_6h_FC"
 tpm_treated_col = "RH4_IHK44_100nM_6h"
 tpm_dmso_col = "RH4_DMSO_6h"
 
+EXP.log2FC.list <- as.data.frame(EXP.log2FC)
+EXP.log2FC.list <- cbind(gene_id = rownames(EXP.log2FC.list), EXP.log2FC.list)
+rownames(EXP.log2FC.list) <- NULL
+
 # merge TPM and FC columns on gene_id
 merged_condition_matrix = merge(EXP.coding.matrix[, c("gene_id", tpm_treated_col, tpm_dmso_col)],
-                EXP.log2FC[, c("gene_id", fc_col)],
+                EXP.log2FC.list[, c("gene_id", fc_col)],
                 by = "gene_id")
 colnames(merged_condition_matrix) = c("gene_id", "TPM_treated", "TPM_dmso", "log2FC")
 
