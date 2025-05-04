@@ -118,13 +118,13 @@ dir.create(file.path(project.folder, "GSEA_ranklist", "vs_DMSO"), recursive = T)
 
 # write out RNK files to run GSEA
 for (i in 2:ncol(EXP.GSEA)) {
-  Ranklist = data.frame(EXP.GSEA[, 1])                                                                            # create Ranklist df, 1st column is gene_id
-  Ranklist$DeltaTPM = EXP.GSEA[, i]                                                                               # 2nd column is DeltaTPM
+  Ranklist = data.frame(EXP.GSEA[, 1])
+  Ranklist$DeltaTPM = EXP.GSEA[, i]
   
-  Ranklist = Ranklist[rev(order(Ranklist$DeltaTPM)), ]                                                            # sort in descending order by DeltaTPM
+  Ranklist = Ranklist[rev(order(Ranklist$DeltaTPM)), ]
   
-  SampleName = colnames(EXP.GSEA)[i]                                                                              # acquire name
-  mytime = format(Sys.time(), "%b_%d_%Y")                                                                         # acquire date
+  SampleName = colnames(EXP.GSEA)[i]
+  mytime = format(Sys.time(), "%b_%d_%Y")
   
   myfile = file.path(project.folder, 
                      "GSEA_ranklist", 
