@@ -1,6 +1,7 @@
-##########################
-# Updated: 05.03.2025 (Matt)
-##########################
+###################################
+# Matt, 05.07.2025
+# build PCA, heatmaps, bar plots, box plots
+###################################
 
 library(plyr)
 library(dplyr)
@@ -12,20 +13,11 @@ library(ggplot2)
 library(reshape2)
 library(gridExtra)
 
-# import TPM and Log2FC matrices
+# load TPM and Log2FC matrices
 setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices/")
-EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header = T)
-EXP.coding.matrix = EXP.coding.matrix[, 1:(ncol(EXP.coding.matrix) - 4)] # remove IHK-45
-EXP.log2FC = read.table("IHK_samples.log2FC.txt", header = T)
-
-# import metadata
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/SampleList/")
-sample.class = read.table("sample-list-IHK-info.txt", header = F, stringsAsFactors = F)
-colnames(sample.class) = c("sample.name.list", "drugs", "timepoints", "concentrations", "annotations")
-
-# import geneset
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GeneSets/")
-gene.list = read.table("MSC_GRYDER_RH4_CR_TFs_CRISPRTop.genelist.txt", sep = "\t", header = F)
+EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header=T)
+EXP.coding.matrix = EXP.coding.matrix[ , 1:29]
+EXP.log2FC = read.table("IHK_samples.log2FC.txt", header=T)
 
 project.folder = "/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC"
 sample.set = "IHK_samples"   
@@ -36,64 +28,55 @@ sample.set = "IHK_samples"
 
 
 
+#########################################################################################################
+################################################## PCA ##################################################
+#########################################################################################################
 
-########################## PCA ##########################
+# REQUIRED: load metadata
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/SampleList/")
+sample.class = read.table("sample-list-IHK-info.txt", header = F, stringsAsFactors = F)
+colnames(sample.class) = c("sample.name.list", "drugs", "timepoints", "concentrations", "annotations")
 
-# color scheme
+# OPTIONAL: choose color scheme
 drug_colors = c(
   "DMSO" = "gray40", "NT" = "gray40", 
   "A485" = "blue", "dCBP" = "darkgreen", "IHK44" = "red", 
   "JQAD" = "darkgoldenrod1", "LS" = "purple", "QL" = "darkorange3"
 )
 
-# subset based on time-point (2h, 6h) and dosage (100nM, 1uM)
-EXP.2h.and.6h = EXP.coding.matrix
-EXP.2h = EXP.coding.matrix %>% select(gene_id, contains("_2h"))
-EXP.6h = EXP.coding.matrix %>% select(gene_id, contains("_6h"))
-EXP.100nM = EXP.coding.matrix %>% select(gene_id, matches("(_100nM|_NT_|_DMSO_)"))
-EXP.1uM = EXP.coding.matrix %>% select(gene_id, matches("(_1uM|_NT_|_DMSO_)"))
+# function to perform PCA
+run_pca <- function(EXP.pca_subset, sample.class_subset) {
+  # prepare matrix
+  EXP.pca <- as.matrix(EXP.pca_subset[, -1])
+  rownames(EXP.pca) <- EXP.coding.matrix$gene_id
+  EXP.pca <- log2(EXP.pca + 1)
+  
+  # run PCA
+  pca <- prcomp(t(EXP.pca))
+  
+  # variance explained
+  pcv <- round((pca$sdev)^2 / sum(pca$sdev^2) * 100, 2)
+  
+  # PCA coordinates df
+  EXP.pca.df <- as.data.frame(pca$x) %>% rownames_to_column("sample.name.list")
+  
+  # merge metadata
+  EXP.pca.df.meta <- merge(EXP.pca.df, sample.class_subset, by = "sample.name.list") %>% 
+    mutate(sample.name.list = sample.name.list %>%
+             gsub("^RH4_", "", .) %>%
+             gsub("_100nM_2h|_100nM_6h|_1uM_2h|_1uM_6h|_2h|_6h", "", .))
+  
+  return(list(pca = pca, meta = EXP.pca.df.meta, pcv = pcv))
+}
 
-sample.class.2h.and.6h = sample.class %>%
-  mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
-sample.class.2h = sample.class %>% 
-  filter(grepl("_2h$", sample.name.list)) %>%
-  mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
-sample.class.6h = sample.class %>% 
-  filter(grepl("_6h$", sample.name.list)) %>%
-  mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
-sample.class.100nM = sample.class %>% 
-  filter(grepl("(_100nM|_NT_|_DMSO_)", sample.name.list)) %>%
-  mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
-sample.class.1uM = sample.class %>% 
-  filter(grepl("(_1uM|_NT_|_DMSO_)", sample.name.list)) %>%
-  mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
-
-
-# main function for running PCA
-run_pca_and_plot = function(EXP.pca_subset, sample.class_subset, time_label) {
-  # prepare PCA matrix
-  EXP.pca = as.matrix(EXP.pca_subset[, -1])
-  rownames(EXP.pca) = EXP.coding.matrix$gene_id
-  EXP.pca = log2(EXP.pca + 1)
+# function to plot PCA
+plot_pca <- function(pca_result, time_label) {
+  pca <- pca_result$pca
+  EXP.pca.df.meta <- pca_result$meta
+  pcv <- pca_result$pcv
   
-  # perform PCA
-  pca = prcomp(t(EXP.pca))
-  
-  # acquire principle component vectors
-  pcv = round((pca$sdev)^2 / sum(pca$sdev^2) * 100, 2)
-  
-  # merge with metadata
-  EXP.pca.df = as.data.frame(pca$x) %>% rownames_to_column("sample.name.list")
-  
-  EXP.pca.df.meta <- merge(EXP.pca.df, sample.class_subset, by = "sample.name.list") %>%
-    mutate(
-      sample.name.list = sample.name.list %>%
-        gsub("^RH4_", "", .) %>%
-        gsub("_100nM_2h|_100nM_6h|_1uM_2h|_1uM_6h|_2h|_6h", "", .)
-    )
-  
-  # plot PCA
-  plot.pca = ggplot(EXP.pca.df.meta, aes(PC1, PC2, colour = drugs, shape = condition)) +
+  # plot
+  plot.pca <- ggplot(EXP.pca.df.meta, aes(PC1, PC2, colour = drugs, shape = condition)) +
     geom_point(size = 3) +
     xlab(paste0("PC1 (", pcv[1], "%)")) +
     ylab(paste0("PC2 (", pcv[2], "%)")) +
@@ -103,23 +86,78 @@ run_pca_and_plot = function(EXP.pca_subset, sample.class_subset, time_label) {
     theme(axis.title.x = element_text(size = 15),
           axis.title.y = element_text(size = 15)) +
     labs(title = paste0("PCA for ", time_label, " samples"),
-         subtitle = "Grouped by drug treatment and condition")
+         subtitle = "grouped by drug treatment and condition")
   
-  return(plot.pca) 
+  return(plot.pca)
 }
-  
-# run
-plot.pca.2h.and.6h = run_pca_and_plot(EXP.2h.and.6h, sample.class.2h.and.6h, "2h and 6h")
+
+
+# run on with different types of groupings
+EXP.2h.and.6h <- EXP.coding.matrix
+sample.class.2h.and.6h <- sample.class %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_2h_and_6h <- run_pca(EXP.2h.and.6h, sample.class.2h.and.6h)
+plot.pca.2h.and.6h <- plot_pca(pca_result_2h_and_6h, "2h and 6h")
 print(plot.pca.2h.and.6h)
-plot.pca.2h = run_pca_and_plot(EXP.2h, sample.class.2h, "2h")
+
+EXP.2h <- EXP.coding.matrix %>% select(gene_id, contains("_2h"))
+sample.class.2h <- sample.class %>% filter(grepl("_2h$", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_2h <- run_pca(EXP.2h, sample.class.2h)
+plot.pca.2h <- plot_pca(pca_result_2h, "2h")
 print(plot.pca.2h)
-plot.pca.6h = run_pca_and_plot(EXP.6h, sample.class.6h, "6h")
+
+EXP.6h <- EXP.coding.matrix %>% select(gene_id, contains("_6h"))
+sample.class.6h <- sample.class %>% filter(grepl("_6h$", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_6h <- run_pca(EXP.6h, sample.class.6h)
+plot.pca.6h <- plot_pca(pca_result_6h, "6h")
 print(plot.pca.6h)
-plot.pca.100nM = run_pca_and_plot(EXP.100nM, sample.class.100nM, "100nM")
+
+EXP.100nM <- EXP.coding.matrix %>% select(gene_id, matches("(_100nM|_NT_|_DMSO_)"))
+sample.class.100nM <- sample.class %>% filter(grepl("(_100nM|_NT_|_DMSO_)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_100nM <- run_pca(EXP.100nM, sample.class.100nM)
+plot.pca.100nM <- plot_pca(pca_result_100nM, "100nM")
 print(plot.pca.100nM)
-plot.pca.1uM = run_pca_and_plot(EXP.1uM, sample.class.1uM, "1uM")
+
+EXP.1uM <- EXP.coding.matrix %>% select(gene_id, matches("(_1uM|_NT_|_DMSO_)"))
+sample.class.1uM <- sample.class %>% filter(grepl("(_1uM|_NT_|_DMSO_)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_1uM <- run_pca(EXP.1uM, sample.class.1uM)
+plot.pca.1uM <- plot_pca(pca_result_1uM, "1uM")
 print(plot.pca.1uM)
 
+EXP.PCA_set1_2h <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_2h|_DMSO_2h|_IHK44_.*_2h|_A485_.*_2h|_dCBP_.*_2h)"))
+sample.class.set1_2h <- sample.class %>% filter(grepl("(_NT_2h|_DMSO_2h|_IHK44_.*_2h|_A485_.*_2h|_dCBP_.*_2h)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set1_2h <- run_pca(EXP.PCA_set1_2h, sample.class.set1_2h)
+plot.pca.set1_2h <- plot_pca(pca_result_set1_2h, "dual inhibitors/degraders (2h)")
+print(plot.pca.set1_2h)
+
+EXP.PCA_set1_6h <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_6h|_DMSO_6h|_IHK44_.*_6h|_A485_.*_6h|_dCBP_.*_6h)"))
+sample.class.set1_6h <- sample.class %>% filter(grepl("(_NT_6h|_DMSO_6h|_IHK44_.*_6h|_A485_.*_6h|_dCBP_.*_6h)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set1_6h <- run_pca(EXP.PCA_set1_6h, sample.class.set1_6h)
+plot.pca.set1_6h <- plot_pca(pca_result_set1_6h, "dual inhibitors/degraders (6h)")
+print(plot.pca.set1_6h)
+
+EXP.PCA_set2_2h <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_2h|_DMSO_2h|_LS_.*_2h|_QL_.*_2h|_JQAD_.*_2h)"))
+sample.class.set2_2h <- sample.class %>% filter(grepl("(_NT_2h|_DMSO_2h|_LS_.*_2h|_QL_.*_2h|_JQAD_.*_2h)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set2_2h <- run_pca(EXP.PCA_set2_2h, sample.class.set2_2h)
+plot.pca.set2_2h <- plot_pca(pca_result_set2_2h, "selective degraders (2h)")
+print(plot.pca.set2_2h)
+
+EXP.PCA_set2_6h <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_6h|_DMSO_6h|_LS_.*_6h|_QL_.*_6h|_JQAD_.*_6h)"))
+sample.class.set2_6h <- sample.class %>% filter(grepl("(_NT_6h|_DMSO_6h|_LS_.*_6h|_QL_.*_6h|_JQAD_.*_6h)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set2_6h <- run_pca(EXP.PCA_set2_6h, sample.class.set2_6h)
+plot.pca.set2_6h <- plot_pca(pca_result_set2_6h, "selective degraders (6h)")
+print(plot.pca.set2_6h)
+
+EXP.PCA_set3 <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_|_DMSO_|_IHK44_.*|_A485_.*|_dCBP_.*)"))
+sample.class.set3 <- sample.class %>% filter(grepl("(_NT_|_DMSO_|_IHK44_.*|_A485_.*|_dCBP_.*)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set3 <- run_pca(EXP.PCA_set3, sample.class.set3)
+plot.pca.set3 <- plot_pca(pca_result_set3, "dual inhibitors/degraders")
+print(plot.pca.set3)
+
+EXP.PCA_set4 <- EXP.coding.matrix %>% select(gene_id, matches("(_NT_|_DMSO_|_LS_.*|_QL_.*|_JQAD_.*)"))
+sample.class.set4 <- sample.class %>% filter(grepl("(_NT_|_DMSO_|_LS_.*|_QL_.*|_JQAD_.*)", sample.name.list)) %>% mutate(condition = as.factor(paste(concentrations, timepoints, sep = "_")))
+pca_result_set4 <- run_pca(EXP.PCA_set4, sample.class.set4)
+plot.pca.set4 <- plot_pca(pca_result_set4, "selective inhibitors")
+print(plot.pca.set4)
 
 
 
@@ -127,73 +165,62 @@ print(plot.pca.1uM)
 
 
 
-########################## Log2(TPM + 1) heatmap ##########################
 
-sample.order.and.annotations = c(
-  #"RH4_DMSO_2h" = "Control/selective degrader",
-  "RH4_DMSO_6h" = "Control/selective degrader",
-  #"RH4_NT_2h" = "Control/selective degrader",
-  "RH4_NT_6h" = "Control/selective degrader",
-  #"RH4_JQAD_100nM_2h" = "Control/selective degrader",
-  #"RH4_JQAD_1uM_2h" = "Control/selective degrader",
-  "RH4_JQAD_100nM_6h" = "Control/selective degrader",
-  "RH4_JQAD_1uM_6h" = "Control/selective degrader",
-  #"RH4_LS_100nM_2h" = "Control/selective degrader",
-  #"RH4_LS_1uM_2h" = "Control/selective degrader",
-  "RH4_LS_100nM_6h" = "Control/selective degrader",
-  "RH4_LS_1uM_6h" = "Control/selective degrader",
-  #"RH4_QL_100nM_2h" = "Control/selective degrader",
-  #"RH4_QL_1uM_2h" = "Control/selective degrader",
-  "RH4_QL_100nM_6h" = "Control/selective degrader",
-  "RH4_QL_1uM_6h" = "Control/selective degrader",
-  #"RH4_A485_100nM_2h" = "Dual inhibitor/degrader",
-  #"RH4_A485_1uM_2h" = "Dual inhibitor/degrader",
-  "RH4_A485_100nM_6h" = "Dual inhibitor/degrader",
-  "RH4_A485_1uM_6h" = "Dual inhibitor/degrader",
-  #"RH4_dCBP_100nM_2h" = "Dual inhibitor/degrader",
-  #"RH4_dCBP_1uM_2h" = "Dual inhibitor/degrader",
-  "RH4_dCBP_100nM_6h" = "Dual inhibitor/degrader",
-  "RH4_dCBP_1uM_6h" = "Dual inhibitor/degrader",
-  #"RH4_IHK44_100nM_2h" = "Dual inhibitor/degrader",
-  #"RH4_IHK44_1uM_2h" = "Dual inhibitor/degrader",
-  "RH4_IHK44_100nM_6h" = "Dual inhibitor/degrader",
-  "RH4_IHK44_1uM_6h" = "Dual inhibitor/degrader"
+
+
+
+
+
+
+
+
+
+
+#########################################################################################################
+######################################## Log2(TPM + 1) heatmap ##########################################
+#########################################################################################################
+
+# REQUIRED: load genelist
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/GeneSets/List_format/")
+gene.list <- read.table("GRYDER_RH4_CR_TFs_CRISPRTop.genelist.txt", sep="\t", header=F)
+
+# REQUIRED: choose samples
+samples <- c(
+  "RH4_DMSO_6h", 
+  "RH4_NT_6h",
+  "RH4_JQAD_100nM_6h", 
+  "RH4_LS_100nM_6h", 
+  "RH4_QL_100nM_6h", 
+  "RH4_A485_100nM_6h", 
+  "RH4_dCBP_100nM_6h", 
+  "RH4_IHK44_100nM_6h"
 )
 
-# prepare heatmap
-EXP.expressed.matrix = EXP.coding.matrix
-annotations = data.frame(
-  sample.name.list = names(sample.order.and.annotations),
-  annotations = as.vector(sample.order.and.annotations),
-  row.names = gsub("RH4_", "", names(sample.order.and.annotations))
-)
-EXP.expressed.matrix = EXP.expressed.matrix[, c("gene_id", annotations$sample.name.list)]
-
-# filtering
-EXP.expressed.matrix$maxTPM = apply(EXP.expressed.matrix[, 2:(ncol(EXP.expressed.matrix) - 1)], 1, FUN = max)   # calculate the maximum TPM value for each gene across all samples
-cutoff.expression.min = 10                                                                                      # set the cutoff threshold for minimal expression
-EXP.expressed.matrix = subset(EXP.expressed.matrix, EXP.expressed.matrix$maxTPM > cutoff.expression.min)        # subset the matrix to only include genes with a maximum TPM value above the threshold
-EXP.expressed.matrix.TFs = subset(EXP.expressed.matrix, EXP.expressed.matrix$gene_id %in% gene.list$V1)         # subset the matrix to only include genes in the gene.list
+# filtering for samples, minimum TPM, and genes
+EXP.coding.matrix.heatmap <- EXP.coding.matrix[ , c("gene_id", samples)]
+EXP.coding.matrix.heatmap$maxTPM <- apply(EXP.coding.matrix.heatmap[ , 2:ncol(EXP.coding.matrix.heatmap)], 1, max)
+cutoff.expression.min <- 10
+EXP.coding.matrix.heatmap <- subset(EXP.coding.matrix.heatmap, maxTPM > cutoff.expression.min)
+EXP.coding.matrix.heatmap <- subset(EXP.coding.matrix.heatmap, gene_id %in% gene.list$V1)
 
 # clean up
-EXP.expressed.matrix.TFs = EXP.expressed.matrix.TFs[match(gene.list$V1, EXP.expressed.matrix.TFs$gene_id), ]    # order genes by gene.list
-rownames(EXP.expressed.matrix.TFs) = EXP.expressed.matrix.TFs$gene_id                                           # rownames set to gene_id
-EXP.expressed.matrix.TFs = EXP.expressed.matrix.TFs[, 2:(ncol(EXP.expressed.matrix.TFs) - 1)]                   # dropped first (gene_id) and last (maxTPM)
-EXP.expressed.matrix.TFs = as.matrix(t(EXP.expressed.matrix.TFs))                                               # transposed matrix
-rownames(EXP.expressed.matrix.TFs) = gsub("RH4_", "", rownames(EXP.expressed.matrix.TFs))                       # removed "RH4_"
+EXP.coding.matrix.heatmap <- EXP.coding.matrix.heatmap[match(gene.list$V1, EXP.coding.matrix.heatmap$gene_id), ]
+rownames(EXP.coding.matrix.heatmap) <- EXP.coding.matrix.heatmap$gene_id
+EXP.coding.matrix.heatmap <- EXP.coding.matrix.heatmap[ , 2:(ncol(EXP.coding.matrix.heatmap) - 1)]
+EXP.coding.matrix.heatmap <- as.matrix(t(EXP.coding.matrix.heatmap))
+rownames(EXP.coding.matrix.heatmap) <- gsub("RH4_", "", rownames(EXP.coding.matrix.heatmap))
 
 # plot
-color.scale = colorRampPalette(c("white", "pink", "red"))(100)
-pheatmap(log2(EXP.expressed.matrix.TFs + 1), 
-         cluster_rows = T, 
-         cluster_cols = T, 
-         scale = 'none', 
-         show_rownames = T, 
-         show_colnames = T, 
-         angle_col = 315, 
-         annotation_row = annotations[, "annotations", drop = FALSE], 
-         main = paste("Log2(TPM + 1)"),
-         color = color.scale)
+color.scale <- colorRampPalette(c("white", "pink", "red"))(100)
+pheatmap(log2(EXP.coding.matrix.heatmap + 1),
+         cluster_rows=T,
+         cluster_cols=T,
+         scale='none',
+         show_rownames=T,
+         show_colnames=T,
+         angle_col=315,
+         main="Heatmap of Log2(TPM + 1)",
+         color=color.scale)
 
 
 
@@ -207,71 +234,168 @@ pheatmap(log2(EXP.expressed.matrix.TFs + 1),
 
 
 
-########################## Log2FC heatmap ##########################
+#########################################################################################################
+########################################### Log2FC heatmap ##############################################
+#########################################################################################################
 
-sample.order.and.annotations.FC = c(
-  #"RH4_JQAD_100nM_2h_FC" = "Selective degrader",
-  #"RH4_JQAD_100nM_6h_FC" = "Selective degrader",
-  #"RH4_JQAD_1uM_2h_FC" = "Selective degrader",
-  "RH4_JQAD_1uM_6h_FC" = "Selective degrader",
-  #"RH4_LS_100nM_2h_FC" = "Selective degrader",
-  #"RH4_LS_100nM_6h_FC" = "Selective degrader",
-  #"RH4_LS_1uM_2h_FC" = "Selective degrader",
-  "RH4_LS_1uM_6h_FC" = "Selective degrader",
-  #"RH4_QL_100nM_2h_FC" = "Selective degrader",
-  #"RH4_QL_100nM_6h_FC" = "Selective degrader",
-  #"RH4_QL_1uM_2h_FC" = "Selective degrader",
-  "RH4_QL_1uM_6h_FC" = "Selective degrader",
-  #"RH4_dCBP_100nM_2h_FC" = "Dual inhibitor/degrader",
-  #"RH4_dCBP_100nM_6h_FC" = "Dual inhibitor/degrader",
-  #"RH4_dCBP_1uM_2h_FC" = "Dual inhibitor/degrader",
-  "RH4_dCBP_1uM_6h_FC" = "Dual inhibitor/degrader",
-  #"RH4_A485_100nM_2h_FC" = "Dual inhibitor/degrader",
-  #"RH4_A485_100nM_6h_FC" = "Dual inhibitor/degrader",
-  #"RH4_A485_1uM_2h_FC" = "Dual inhibitor/degrader",
-  "RH4_A485_1uM_6h_FC" = "Dual inhibitor/degrader",
-  #"RH4_IHK44_100nM_2h_FC" = "Dual inhibitor/degrader",
-  #"RH4_IHK44_100nM_6h_FC" = "Dual inhibitor/degrader",
-  #"RH4_IHK44_1uM_2h_FC" = "Dual inhibitor/degrader",
-  "RH4_IHK44_1uM_6h_FC" = "Dual inhibitor/degrader"
+# REQUIRED: load genelist
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/GeneSets/List_format/")
+gene.list <- read.table("GRYDER_RH4_CR_TFs_CRISPRTop.genelist.txt", sep="\t", header=F)
+
+# REQUIRED: choose samples
+samples.FC <- c(
+  "RH4_JQAD_1uM_6h_FC",
+  "RH4_LS_1uM_6h_FC",
+  "RH4_QL_1uM_6h_FC",
+  "RH4_dCBP_1uM_6h_FC",
+  "RH4_A485_1uM_6h_FC",
+  "RH4_IHK44_1uM_6h_FC"
 )
 
+# filtering for samples and genes
+EXP.log2FC.heatmap <- EXP.log2FC[ , c("gene_id", samples.FC)]
+EXP.log2FC.heatmap <- subset(EXP.log2FC.heatmap, gene_id %in% gene.list$V1)
 
-# Create annotations dataframe
-annotations.FC <- data.frame(
-  sample.name.list = names(sample.order.and.annotations.FC),
-  annotations = as.vector(sample.order.and.annotations.FC),
-  row.names = gsub("RH4_", "", names(sample.order.and.annotations.FC))
-)
-
-# Prepare heatmap data
-EXP.log2FC.heatmap <- EXP.log2FC
-EXP.log2FC.heatmap = EXP.log2FC.heatmap[, c("gene_id", annotations.FC$sample.name.list)]
-
-# Filtering and ordering
-EXP.log2FC.heatmap <- EXP.log2FC.heatmap[EXP.log2FC.heatmap$gene_id %in% gene.list$V1, ]  # Filter for genes in gene.list
-EXP.log2FC.heatmap <- EXP.log2FC.heatmap[match(gene.list$V1, EXP.log2FC.heatmap$gene_id), ] # Order by gene.list
-rownames(EXP.log2FC.heatmap) <- EXP.log2FC.heatmap$gene_id  # Set row names to gene_id
-EXP.log2FC.heatmap <- EXP.log2FC.heatmap[, 2:ncol(EXP.log2FC.heatmap)]  # Drop first column (gene_id)
-
-# Transpose matrix for consistency with Log2(TPM + 1) structure
+# clean up
+EXP.log2FC.heatmap <- EXP.log2FC.heatmap[match(gene.list$V1, EXP.log2FC.heatmap$gene_id), ]
+rownames(EXP.log2FC.heatmap) <- EXP.log2FC.heatmap$gene_id
+EXP.log2FC.heatmap <- EXP.log2FC.heatmap[ , -1]
 EXP.log2FC.heatmap <- as.matrix(t(EXP.log2FC.heatmap))
-
-# Remove "RH4_" prefix from sample names
 rownames(EXP.log2FC.heatmap) <- gsub("RH4_", "", rownames(EXP.log2FC.heatmap))
 
-# Plot heatmap
+# plot
 color.scale <- colorRampPalette(c("red", "pink", "white"))(100)
-pheatmap(EXP.log2FC.heatmap, 
-         cluster_rows = T, 
-         cluster_cols = T, 
-         scale = "none", 
-         show_rownames = T, 
-         show_colnames = T, 
-         angle_col = 315, 
-         annotation_row = annotations.FC[, "annotations", drop = FALSE],
-         main = "Log2FC", 
-         color = color.scale)
+pheatmap(EXP.log2FC.heatmap,
+         cluster_rows=T,
+         cluster_cols=T,
+         scale="none",
+         show_rownames=T,
+         show_colnames=T,
+         angle_col=315,
+         main="Heatmap of Log2FC",
+         color=color.scale)
+
+
+
+
+
+
+
+
+
+#########################################################################################################
+############################### box/violin plots across multiple genesets ###############################
+#########################################################################################################
+
+# REQUIRED: choose samples
+samples <- c("IHK44_100nM_2h_FC", 
+             "IHK44_1uM_2h_FC", 
+             "IHK44_100nM_6h_FC", 
+             "IHK44_1uM_6h_FC")
+
+# OPTIONAL: choose color scheme
+samples.colors <- c("IHK44_100nM_2h_FC" = "#F6CDCD",
+                    "IHK44_100nM_6h_FC" = "#EA4444",
+                    "IHK44_1uM_2h_FC" = "#EE7272",
+                    "IHK44_1uM_6h_FC" = "#FF0000")
+
+# REQUIRED: load genelists
+setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/GeneSets/List_format/")
+housekeeping_genes <- read.table("house_keeping_genes.txt", header=F, stringsAsFactors=F) %>% mutate(gene_set="Housekeeping genes")
+RH4_CR_TFs <- read.table("GRYDER_RH4_CR_TFs.genelist.txt", header=F, stringsAsFactors=F) %>% mutate(gene_set="RH4 CR TFs")
+all_genesets <- bind_rows(housekeeping_genes, RH4_CR_TFs)
+
+# filter for genes and samples
+EXP.log2FC.box = EXP.log2FC
+colnames(EXP.log2FC.box) <- gsub("^RH4_", "", colnames(EXP.log2FC.box))
+rownames(EXP.log2FC.box) <- EXP.log2FC.box$gene_id
+EXP.log2FC.box <- EXP.log2FC.box[rownames(EXP.log2FC.box) %in% all_genesets$V1, ]
+EXP.log2FC.box <- EXP.log2FC.box[ , colnames(EXP.log2FC.box) %in% samples]
+EXP.log2FC.box <- EXP.log2FC.box[, samples]
+
+# clean up
+EXP.log2FC.box.plot <- as.data.frame(EXP.log2FC.box)
+EXP.log2FC.box.plot <- rownames_to_column(EXP.log2FC.box.plot, var = "gene")
+EXP.log2FC.box.plot <- pivot_longer(EXP.log2FC.box.plot, cols = -gene, names_to = "sample_name", values_to = "log2FC")
+EXP.log2FC.box.plot <- left_join(EXP.log2FC.box.plot, all_genesets, by = c("gene" = "V1"))
+EXP.log2FC.box.plot <- EXP.log2FC.box.plot[, c("gene", "sample_name", "log2FC", "gene_set")]
+EXP.log2FC.box.plot$sample_name <- factor(EXP.log2FC.box.plot$sample_name, levels = samples)
+
+# plot
+ggplot(EXP.log2FC.box.plot, aes(x=sample_name, y=log2FC, fill=sample_name)) +
+  geom_violin(alpha=0.6, scale="width", width=0.5) + 
+  geom_boxplot(width=0.25, color="black", alpha=0.7, outlier.shape=NA) +
+  facet_wrap(~ gene_set, scales = "fixed") +
+  scale_fill_manual(values = samples.colors) +
+  labs(x="", y="Log2FC", title="Boxplot of Log2FC for dual inhibitors/degraders") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle=90, hjust=1))
+
+
+
+
+
+
+
+
+#########################################################################################################
+##################################### TPM bar plot for a single gene ####################################
+#########################################################################################################
+
+# REQUIRED: choose sample(s)
+samples <- c("NT_6h", 
+             "DMSO_6h", 
+             "IHK44_100nM_2h", 
+             "IHK44_1uM_2h", 
+             "IHK44_100nM_6h", 
+             "IHK44_1uM_6h")
+
+# OPTIONAL: choose color scheme
+samples.colors <- c("NT_6h" = "gray60", 
+                    "DMSO_6h" = "gray40", 
+                    "IHK44_100nM_2h" = "#F6CDCD",
+                    "IHK44_100nM_6h" = "#EA4444",
+                    "IHK44_1uM_2h" = "#EE7272",
+                    "IHK44_1uM_6h" = "#FF0000")
+
+# REQUIRED: choose gene
+gene <- "MYCN"
+
+# filter for gene and samples
+EXP.coding.matrix.bar <- EXP.coding.matrix[EXP.coding.matrix$gene_id == gene, ]
+colnames(EXP.coding.matrix.bar) <- gsub("^RH4_", "", colnames(EXP.coding.matrix.bar))
+EXP.coding.matrix.bar <- EXP.coding.matrix.bar[, c("gene_id", samples)]
+EXP.coding.matrix.bar <- pivot_longer(EXP.coding.matrix.bar, cols = -gene_id, names_to = "sample_name", values_to = "expression")
+
+# plot
+ggplot(EXP.coding.matrix.bar, aes(x=factor(sample_name, levels = samples), y=expression, fill=sample_name)) +
+  geom_bar(stat="identity", position="dodge", width=0.8) + 
+  scale_fill_manual(values=samples.colors) +
+  labs(x="", y="TPM", title=paste("TPM levels for", gene)) +
+  theme_minimal() +
+  theme(axis.text.x=element_text(angle=90, hjust=1))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -300,11 +424,8 @@ extract_info = function(name) {
   return(list(drug = drug, dosage = dosage, timepoint = timepoint))
 }
 
-# load in TPM matrix
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices/")
-EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header = T)
 
-# choose gene of interest
+# REQUIRED: choose gene of interest
 gene = "MYOD1"
 desired.drug.order = c("JQAD", "LS", "QL", 
                        "A485", "dCBP", "IHK44")
@@ -405,128 +526,6 @@ grid.arrange(p1$gtable, p2$gtable, ncol = 2, widths = c(0.75, 2.5))
 
 
 
-########################## box/violin plots across multiple genesets ##########################
-
-# load in Log2FC data
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices")
-EXP.log2FC = read.table("IHK_samples.log2FC.txt", header = T, row.names = 1)
-colnames(EXP.log2FC) = gsub("^RH4_", "", colnames(EXP.log2FC))
-
-# declare samples of interest
-samples =        c("A485_100nM_6h_FC", 
-                   "IHK44_100nM_6h_FC",
-                   "A485_1uM_6h_FC",
-                   "IHK44_1uM_6h_FC")
-samples.colors = c("A485_100nM_2h_FC" = "blue", 
-                   "A485_100nM_6h_FC" = "blue", 
-                   "A485_1uM_2h_FC" = "blue", 
-                   "A485_1uM_6h_FC" = "blue", 
-                   "IHK44_100nM_2h_FC" = "#F6CDCD",
-                   "IHK44_100nM_6h_FC" = "#EA4444",
-                   "IHK44_1uM_2h_FC" = "#EE7272",
-                   "IHK44_1uM_6h_FC" = "#FF0000",
-                   "dCBP_100nM_2h_FC" = "green",
-                   "dCBP_100nM_6h_FC" = "green",
-                   "dCBP_1uM_2h_FC" = "green",
-                   "dCBP_1uM_6h_FC" = "green")
-
-# select gene sets
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/GeneSets/")
-housekeeping_genes = read.table("house_keeping_genes.txt", header = F, stringsAsFactors = F) %>% mutate(gene_set = "Housekeeping genes")
-RH4_CR_TFs = read.table("GRYDER_RH4_CR_TFs.genelist.txt", header = F, stringsAsFactors = F) %>% mutate(gene_set = "RH4 CR TFs")
-all_genesets = bind_rows(housekeeping_genes, RH4_CR_TFs)
-
-# filter
-EXP.log2FC.filter = EXP.log2FC[rownames(EXP.log2FC) %in% all_genesets$V1, ]                                     # subset genes
-EXP.log2FC.filter = EXP.log2FC.filter[, colnames(EXP.log2FC.filter) %in% samples]                               # subset samples
-EXP.log2FC.filter = EXP.log2FC.filter[, samples]                                                                # set the order of the samples
-
-# clean up
-EXP.log2FC.plot = as.data.frame(EXP.log2FC.filter)                                                              # copy over filtered df
-EXP.log2FC.plot = rownames_to_column(EXP.log2FC.plot, var = "gene")                                             # transfer rownames (genes) to a column
-EXP.log2FC.plot = pivot_longer(EXP.log2FC.plot, cols = -gene, names_to = "sample_name", values_to = "log2FC")   # transform to long format (gene, sample_name, log2FC)
-EXP.log2FC.plot = left_join(EXP.log2FC.plot, all_genesets, by = c("gene" = "V1"))
-EXP.log2FC.plot$sample_name = factor(EXP.log2FC.plot$sample_name, levels = samples)
-
-# plot
-ggplot(EXP.log2FC.plot, aes(x = sample_name, y = log2FC, fill = sample_name)) +
-  geom_violin(alpha = 0.6, scale = "width", width = 0.5) + 
-  geom_boxplot(width = 0.25, color = "black", alpha = 0.7, outlier.shape = NA) +
-  facet_wrap(~ gene_set, scales = "fixed") +
-  scale_fill_manual(values = samples.colors) +
-  labs(x = "Sample", 
-       y = "Log2FC", 
-       title = "Boxplot of Log2FC for dual inhibitors/degraders") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-########################## TPM bar plot for a single gene ##########################
-
-# load in TPM data
-setwd("/Volumes/rc/SOM_GENE_BEG33/RNA_seq/hg38/projects/RMS_IHK/Practice_MSC/ExpMatrices/")
-EXP.coding.matrix = read.table("IHK_samples.coding.norm.matrix.txt", header = T)
-cols.to.keep = 1:(ncol(EXP.coding.matrix) - 4)
-EXP.coding.matrix = EXP.coding.matrix[, cols.to.keep]
-
-# EDIT HERE
-gene = "MYCN"
-samples =        c("NT_6h", 
-                   "DMSO_6h", 
-                   # "QL_100nM_6h", 
-                   # "LS_100nM_6h", 
-                   # "JQAD_100nM_6h", 
-                   "A485_100nM_6h", 
-                   "IHK44_100nM_6h", 
-                   "dCBP_100nM_6h")
-samples.colors = c("NT_6h" = "gray60", 
-                   "DMSO_6h" = "gray40", 
-                   # "JQAD_100nM_6h" = "#40E0D0", 
-                   # "LS_100nM_6h" = "#98FB98", 
-                   # "QL_100nM_6h" = "#6B8E23", 
-                   "A485_100nM_6h" = "#F4C430", 
-                   "IHK44_100nM_6h" = "#FF4500", 
-                   "dCBP_100nM_6h" = "#9370DB")
-
-# filter
-EXP.single.gene = EXP.coding.matrix[EXP.coding.matrix$gene_id == gene, ]
-colnames(EXP.single.gene) = gsub("^RH4_", "", colnames(EXP.single.gene))
-EXP.single.gene = EXP.single.gene[, c("gene_id", samples)]
-EXP.single.gene = pivot_longer(EXP.single.gene, cols = -gene_id, names_to = "sample_name", values_to = "expression")
-
-# plot
-ggplot(EXP.single.gene, aes(x = factor(sample_name, levels = samples), y = expression, fill = sample_name)) +
-  geom_bar(stat = "identity", position = "dodge", width = 0.7) + 
-  scale_fill_manual(values = samples.colors) +
-  labs(x = "Sample", 
-       y = "TPM", 
-       title = paste("Expression for", gene)) +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-
-################ end of bar plots ################ 
-
-
-
-
-
-
-
-
-
-
 
 
 ########################## rank plot for a single sample ##########################
@@ -566,56 +565,6 @@ ggplot(EXP.log2FC.df, aes(x = rank, y = log2FC)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1))
 
 
-
-
-
-
-
-########################## retrieve lists of genes in groups ########################## 
-
-# define condition to classify
-fc_col = "RH4_IHK44_100nM_6h_FC"
-tpm_treated_col = "RH4_IHK44_100nM_6h"
-tpm_dmso_col = "RH4_DMSO_6h"
-
-EXP.log2FC.list <- as.data.frame(EXP.log2FC)
-EXP.log2FC.list <- cbind(gene_id = rownames(EXP.log2FC.list), EXP.log2FC.list)
-rownames(EXP.log2FC.list) <- NULL
-
-# merge TPM and FC columns on gene_id
-merged_condition_matrix = merge(EXP.coding.matrix[, c("gene_id", tpm_treated_col, tpm_dmso_col)],
-                EXP.log2FC.list[, c("gene_id", fc_col)],
-                by = "gene_id")
-colnames(merged_condition_matrix) = c("gene_id", "TPM_treated", "TPM_dmso", "log2FC")
-
-# classification function to assign group status for each gene
-classify_gene = function(tpm_treated, tpm_dmso, log2FC) {
-  if (tpm_treated < 1 && tpm_dmso < 1) {
-    return("Not_Expressed")
-  } 
-  else if (log2FC >= 1) {
-    return("Upregulated")
-  } 
-  else if (log2FC <= -1) {
-    return("Downregulated")
-  } 
-  else { # -1 <= log2FC <= 1
-    return("No_Change")
-  }
-}
-
-# apply classification
-merged_condition_matrix$group = mapply(classify_gene, merged_condition_matrix$TPM_treated, merged_condition_matrix$TPM_dmso, merged_condition_matrix$log2FC)
-classify_genes = merged_condition_matrix[, c("gene_id", "group")]
-
-head(classify_genes)
-table(classify_genes$group)
-
-write.table(classify_genes,
-            file = file.path(project.folder, "genes_group_classification_IHK44_100nM_6hrs.txt"),
-            sep = "\t",
-            quote = F,
-            row.names = F)
 
 
 
