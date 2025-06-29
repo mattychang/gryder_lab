@@ -16,9 +16,3 @@ Covers mycoplasma detection.
 
 ## 5. `str_test.xlsx`
 Details the procedure for STR (Short Tandem Repeat) profiling to authenticate cell lines.
-
-## 6. `reagents.xlsx`
-List of common reagents used.
-
-## 7. `cell_repo.xslx`
-Spreadsheet to hold frozen cell line information.
