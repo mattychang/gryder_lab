@@ -4,6 +4,7 @@
 - https://cran.r-project.org
 - https://posit.co/download/rstudio-desktop/
 - Common packages used: tidyverse (dplyr, tidyr, ggplot2), pheatmap, grid, gridExtra
+- I have a tutorial to learning how to program in R and navigating RStudio [here](https://github.com/mattychang/learning_R_for_bioinformatics)
 
 ## IGV
 - https://igv.org/doc/desktop/#DownloadPage/ 
