@@ -1,13 +1,10 @@
 # RNA-seq
 
-## `RNAseq.xlsx`
-Sample prep information
-
 ## `buildTPM.R`
-Filters and builds transcripts per million (TPM) matrix
+Builds transcripts per million (TPM) matrix
 
 ## `plots.R`
-Visualization
+Visualization and exploration
 
 ## `gatherGSEA.R`
-GSEA analysis
+Custom GSEA analyses
