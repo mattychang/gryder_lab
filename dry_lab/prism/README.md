@@ -1,7 +1,6 @@
 # PRISM (Broad Institute)
 
-Scripts and documentation for analyzing PRISM drug screening data from the Broad Institute with IHK-44. 
+PRISM (Profiling Relative Inhibition Simultaneously in Mixtures) is a high-throughput pooled screening platform that measures compound sensitivity across hundreds of molecularly characterized cancer cell lines using a DNA barcoding approach. This folder contains workflows for processing PRISM viability data, performing subtype-specific analyses, and visualizing drug response patterns to evaluate IHK-44 efficacy.
 
-PRISM (Profiling Relative Inhibition Simultaneously in Mixtures) is a high-throughput pooled screening platform that quantifies compound sensitivity across hundreds of cancer cell lines using a molecular barcoding method. 
-
-Resources: https://www.theprismlab.org/, https://depmap.org/repurposing/, https://pmc.ncbi.nlm.nih.gov/articles/PMC7328899/
+## plotPRISM.R
+Visualization scripts.
