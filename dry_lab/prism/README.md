@@ -3,4 +3,4 @@
 PRISM (Profiling Relative Inhibition Simultaneously in Mixtures) is a high-throughput pooled screening platform that measures compound sensitivity across hundreds of molecularly characterized cancer cell lines using a DNA barcoding approach by the Broad Institute. This folder contains workflows for processing PRISM viability data, performing subtype-specific analyses, and visualizing drug response patterns to evaluate IHK-44 efficacy.
 
 ## `plotPRISM.R` ##
-Visualization
+Visualization and correlation analysis
